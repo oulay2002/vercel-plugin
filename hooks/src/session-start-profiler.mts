@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { AgentResult } from "detect-agent";
@@ -377,19 +377,30 @@ export function binaryNeedsShell(
   return platform === "win32" && WINDOWS_SHELL_SCRIPT_RE.test(binaryPath);
 }
 
+/**
+ * Build the single command string cmd.exe runs for a batch wrapper. The path is
+ * quoted because cmd.exe would otherwise split it on spaces (for example
+ * `C:\Program Files\nodejs\npm.cmd`). Args are module constants, never user
+ * input, so they are appended as-is.
+ */
+export function buildShellCommand(binaryPath: string, args: string[]): string {
+  return [`"${binaryPath}"`, ...args].join(" ");
+}
+
 /** Run a resolved binary and return its trimmed stdout. */
 function runBinarySync(binaryPath: string, args: string[]): string {
-  const needsShell = binaryNeedsShell(binaryPath);
-  // Under `shell: true` the command is re-parsed by cmd.exe, which would
-  // otherwise split an unquoted path on its spaces.
-  const command = needsShell ? `"${binaryPath}"` : binaryPath;
-  return execFileSync(command, args, {
+  const options = {
     timeout: EXEC_SYNC_TIMEOUT_MS,
-    encoding: "utf-8",
+    encoding: "utf-8" as const,
     stdio: SPAWN_STDIO,
-    shell: needsShell,
     windowsHide: true,
-  }).trim();
+  };
+  // A batch wrapper needs a shell. Pass one command string rather than
+  // `shell: true` plus an args array, which Node 24 deprecates (DEP0190).
+  if (binaryNeedsShell(binaryPath)) {
+    return execSync(buildShellCommand(binaryPath, args), options).trim();
+  }
+  return execFileSync(binaryPath, args, options).trim();
 }
 
 function resolveBinaryFromPath(binaryName: string): string | null {

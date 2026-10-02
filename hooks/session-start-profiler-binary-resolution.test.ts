@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   binaryNeedsShell,
+  buildShellCommand,
   getBinaryPathCandidates,
 } from "./src/session-start-profiler.mts";
 
@@ -63,4 +68,32 @@ describe("binaryNeedsShell", () => {
     expect(binaryNeedsShell("/usr/local/bin/vercel", "linux")).toBe(false);
     expect(binaryNeedsShell("/usr/local/bin/weird.cmd", "darwin")).toBe(false);
   });
+});
+
+describe("buildShellCommand", () => {
+  test("quotes a batch wrapper path that contains spaces", () => {
+    expect(
+      buildShellCommand("C:\\Program Files\\nodejs\\npm.cmd", ["view", "vercel", "version"]),
+    ).toBe('"C:\\Program Files\\nodejs\\npm.cmd" view vercel version');
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "runs a binary under a path with spaces through a shell with its args intact",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "vercel plugin "));
+      try {
+        const binary = join(dir, "fake vercel");
+        writeFileSync(binary, '#!/bin/sh\necho "$# $*"\n');
+        chmodSync(binary, 0o755);
+
+        const output = execSync(buildShellCommand(binary, ["--version"]), {
+          encoding: "utf-8",
+        }).trim();
+
+        expect(output).toBe("1 --version");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

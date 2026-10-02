@@ -365,7 +365,7 @@ import {
   readdirSync
 } from "fs";
 import { delimiter, join, resolve } from "path";
-import { execFileSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import {
@@ -581,16 +581,20 @@ function getBinaryPathCandidates(binaryName, platform = process.platform, pathEx
 function binaryNeedsShell(binaryPath, platform = process.platform) {
   return platform === "win32" && WINDOWS_SHELL_SCRIPT_RE.test(binaryPath);
 }
+function buildShellCommand(binaryPath, args) {
+  return [`"${binaryPath}"`, ...args].join(" ");
+}
 function runBinarySync(binaryPath, args) {
-  const needsShell = binaryNeedsShell(binaryPath);
-  const command = needsShell ? `"${binaryPath}"` : binaryPath;
-  return execFileSync(command, args, {
+  const options = {
     timeout: EXEC_SYNC_TIMEOUT_MS,
     encoding: "utf-8",
     stdio: SPAWN_STDIO,
-    shell: needsShell,
     windowsHide: true
-  }).trim();
+  };
+  if (binaryNeedsShell(binaryPath)) {
+    return execSync(buildShellCommand(binaryPath, args), options).trim();
+  }
+  return execFileSync(binaryPath, args, options).trim();
 }
 function resolveBinaryFromPath(binaryName) {
   try {
@@ -911,6 +915,7 @@ export {
   binaryNeedsShell,
   buildSessionStartProfilerEnvVars,
   buildSessionStartProfilerUserMessages,
+  buildShellCommand,
   checkGreenfield,
   detectAgentHarness,
   detectSessionStartPlatform,
